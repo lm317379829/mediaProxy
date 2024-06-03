@@ -47,7 +47,7 @@ jobs:
           xgo -targets=windows/amd64,windows/386,darwin/amd64,darwin/arm64,linux/arm64,linux/amd64,linux/386,freebsd/amd64 -out "mediaProxy" -ldflags "-s -w" -tags netgo .
           echo "FILESNAME=$PWD" >> $GITHUB_ENV
 
-      - name: Bump Version and push tag
+      - name: Bump Version and Push Tag
         id: bump
         uses: anothrNick/github-tag-action@v1 # Don't use @master or @v1 unless you're happy to test the latest version
         env:
