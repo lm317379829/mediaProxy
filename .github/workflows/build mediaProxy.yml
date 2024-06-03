@@ -44,7 +44,7 @@ jobs:
           
       - name: Build Go
         run: |
-          xgo -targets=windows/amd64,windows/386,darwin/amd64,darwin/arm64,linux/arm64,linux/amd64,linux/386 -out "mediaProxy" -ldflags "-s -w" -tags netgo .
+          xgo -targets=windows/amd64,windows/386,darwin/amd64,darwin/arm64,linux/arm64,linux/amd64,linux/386,freebsd/amd64 -out "mediaProxy" -ldflags "-s -w" -tags netgo .
           echo "FILESNAME=$PWD" >> $GITHUB_ENV
 
       - name: Bump Version and Push Tag
