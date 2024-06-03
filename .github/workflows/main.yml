@@ -47,22 +47,19 @@ jobs:
           xgo -targets=windows/amd64,windows/386,darwin/amd64,darwin/arm64,linux/arm64,linux/amd64,linux/386,freebsd/amd64 -out "mediaProxy" -ldflags "-s -w" -tags netgo .
           echo "FILESNAME=$PWD" >> $GITHUB_ENV
 
-      - name: Generate Release Tag
-        id: tag
-        run: |
-          echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
-          echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_STATE
-          git tag "v$(date +"%Y.%m.%d-%H%M")"
-          git push origin "v$(date +"%Y.%m.%d-%H%M")"
-          touch release.txt
+      - name: Bump Version and push tag
+        id: bump
+        uses: anothrNick/github-tag-action@v1 # Don't use @master or @v1 unless you're happy to test the latest version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # if you don't want to set write permissions use a PAT token
+          WITH_V: false
 
       - name: Upload Go to Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          body_path: release.txt
+          tag_name: ${{ steps.bump.outputs.new_tag }}
           files: ${{ env.FILESNAME }}/mediaProxy-*
 
       - name: Delete workflow runs
