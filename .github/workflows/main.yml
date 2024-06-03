@@ -1,4 +1,4 @@
-name: build
+name: build-mediaProxy
 
 on:
   repository_dispatch:
@@ -35,7 +35,6 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          sudo snap install zig --classic
           docker pull crazymax/xgo:latest
           go install github.com/crazy-max/xgo@latest
           sudo apt install upx
