@@ -51,7 +51,7 @@ jobs:
         id: tag
         run: |
           echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
-          echo "=release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_STATE
+          echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_STATE
           touch release.txt
 
       - name: Upload Go to Release
