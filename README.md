@@ -1,5 +1,5 @@
 # mediaProxy
-一个基于pg大佬源码的多媒体转发程序
+一个基于Panda Groove大佬源码的多媒体转发程序
 ## 特点
 支持post与get
 
