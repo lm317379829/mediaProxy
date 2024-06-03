@@ -52,6 +52,8 @@ jobs:
         run: |
           echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
           echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_STATE
+          git tag "v$(date +"%Y.%m.%d-%H%M")"
+          git push origin "v$(date +"%Y.%m.%d-%H%M")"
           touch release.txt
 
       - name: Upload Go to Release
