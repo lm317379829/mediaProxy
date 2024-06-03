@@ -51,14 +51,14 @@ jobs:
           echo "FILESNAME=$PWD" >> $GITHUB_ENV
           echo "::set-output name=status::success"
 
-      - name: Tag the repository
+      - name: Generate Release Tag
         id: tag
         run: |
-          TAG=v$(date -Iseconds | sed 's/[T:\+]/-/g')
-          echo "$TAG"
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-          git tag -a $TAG -m "Published version $TAG" ${GITHUB_SHA}
-          git push origin $TAG
+          echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
+          #echo "::set-output name=release_tag::$(date +"%Y.%m.%d-%H%M")"
+          touch release.txt
+          echo "status=success" >> $GITHUB_OUTPUT
+          #echo "::set-output name=status::success"
 
       - name: Upload Go to Release
         uses: softprops/action-gh-release@v1
@@ -67,7 +67,7 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           body_path: release.txt
-          files: ${{ env.FILESNAME }}/*
+          files: ${{ env.FILESNAME }}/mediaProxy-*
 
       - name: Delete workflow runs
         uses: Mattraks/delete-workflow-runs@v2
