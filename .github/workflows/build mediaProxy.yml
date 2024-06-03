@@ -32,11 +32,6 @@ jobs:
 
       - uses: benjlevesque/short-sha@v2.2
         id: short-sha
-
-      - name: Install Dependencies
-        run: |
-          docker pull crazymax/xgo:latest
-          go install github.com/crazy-max/xgo@latest
           
       - name: SSH Connection to Actions
         uses: P3TERX/ssh2actions@v1.0.0
@@ -44,9 +39,23 @@ jobs:
           
       - name: Build Go
         run: |
-          xgo -targets=windows/amd64,windows/386,darwin/amd64,darwin/arm64,linux/arm64,linux/amd64,linux/386,freebsd/amd64 -out "mediaProxy" -ldflags "-s -w" -tags netgo .
+          set +e
+          GOOS=linux GOARCH=386 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o mediaProxy-linux-386
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o mediaProxy-linux-amd64
+          GOOS=linux GOARCH=arm CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o mediaProxy-linux-arm
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o mediaProxy-linux-arm64
+          GOOS=linux GOARCH=mips CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o mediaProxy-linux-mips
+          GOOS=linux GOARCH=mips64 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o mediaProxy-linux-mips64
+          GOOS=linux GOARCH=mipsle CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o mediaProxy-linux-mipsle
+          GOOS=linux GOARCH=mips64le CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o mediaProxy-linux-mips64le
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o mediaProxy-darwin-amd64
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o mediaProxy-darwin-arm64
+          GOOS=windows GOARCH=386 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o mediaProxy-windows-386
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o mediaProxy-windows-amd64
+          GOOS=freebsd GOARCH=386 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o mediaProxy-freebsd-386
+          GOOS=freebsd GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o mediaProxy-freebsd-amd64
           echo "FILESNAME=$PWD" >> $GITHUB_ENV
-
+  
       - name: Bump Version and Push Tag
         id: bump
         uses: anothrNick/github-tag-action@v1 # Don't use @master or @v1 unless you're happy to test the latest version
