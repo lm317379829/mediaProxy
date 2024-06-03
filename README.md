@@ -50,9 +50,15 @@ header和url可进行base64编码，以避免sni阻断
   </thead>
   <tbody>
     <tr>
+      <td style="text-align:center;">size</td>
+      <td style="text-align:center;">可选</td>
+      <td style="text-align:center;">单线程下载数据大小，可动态调节</td>
+      <td style="text-align:center;">128K，线程数小于4时，为 2048/线程数 K</td>
+    </tr>
+    <tr>
       <td style="text-align:center;">thread</td>
       <td style="text-align:center;">可选</td>
-      <td style="text-align:center;">线程数，默认动态调节</td>
+      <td style="text-align:center;">并发线程数</td>
       <td style="text-align:center;">动态调节</td>
     </tr>
     <tr>
