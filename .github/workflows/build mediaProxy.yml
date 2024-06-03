@@ -71,13 +71,13 @@ jobs:
           tag_name: ${{ steps.bump.outputs.new_tag }}
           files: ${{ env.FILESNAME }}/mediaProxy-*
 
-      - name: Delete workflow runs
+      - name: Delete Workflow Runs
         uses: Mattraks/delete-workflow-runs@v2
         with:
           retain_days: 1
           keep_minimum_runs: 3
 
-      - name: Remove old Releases
+      - name: Remove Old Releases
         uses: dev-drprasad/delete-older-releases@v0.1.0
         if: env.UPLOAD_RELEASE == 'true' && !cancelled()
         with:
