@@ -46,13 +46,12 @@ jobs:
         run: |
           xgo -targets=windows/amd64,windows/386,darwin/amd64,darwin/arm64,linux/arm64,linux/amd64,linux/386,freebsd/amd64 -out "mediaProxy" -ldflags "-s -w" -tags netgo .
           echo "FILESNAME=$PWD" >> $GITHUB_ENV
-          echo "::save-state name=status::success"
 
       - name: Generate Release Tag
         id: tag
         run: |
           echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
-          echo "::save-state name=release_tag::$(date +"%Y.%m.%d-%H%M")"
+          echo "=release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_STATE
           touch release.txt
 
       - name: Upload Go to Release
