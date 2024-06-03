@@ -49,13 +49,13 @@ header和url可进行base64编码，以避免sni阻断
   <tbody>
     <tr>
       <td style="text-align:center;">thread</td>
-      <td style="text-align:center;">可选参数</td>
+      <td style="text-align:center;">可选</td>
       <td style="text-align:center;">线程数，默认动态调节</td>
       <td style="text-align:center;">动态调节</td>
     </tr>
     <tr>
       <td style="text-align:center;">form</td>
-      <td style="text-align:center;">可选参数</td>
+      <td style="text-align:center;">可选</td>
       <td style="text-align:center;">URL与header编码方式，可指定为<code>base64</code>，防止某些SNI阻断，默认<code>urlcode</code>编码</td>
       <td style="text-align:center;">urlcode</td>
     </tr>
@@ -67,7 +67,7 @@ header和url可进行base64编码，以避免sni阻断
     </tr>
     <tr>
       <td style="text-align:center;">url</td>
-      <td style="text-align:center;">必要参数</td>
+      <td style="text-align:center;">必要</td>
       <td style="text-align:center;">POST或GET的目标地址</td>
       <td style="text-align:center;">无</td>
     </tr>
