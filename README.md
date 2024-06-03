@@ -1,9 +1,11 @@
 # mediaProxy
 一个基于Panda Groove大佬源码的多媒体转发程序
-## 特点
-支持post与get
+
+## 启动参数
+./mediaProxy 运行程序
 
 get或post http://ip:port/?thread=线程数&form=url与header编码格式&url=链接&header=所需header
+
 <table>
   <thead>
     <tr>
