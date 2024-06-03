@@ -50,8 +50,8 @@ jobs:
           GOOS=linux GOARCH=mips64le CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o mediaProxy-linux-mips64le
           GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o mediaProxy-darwin-amd64
           GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o mediaProxy-darwin-arm64
-          GOOS=windows GOARCH=386 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o mediaProxy-windows-386
-          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o mediaProxy-windows-amd64
+          GOOS=windows GOARCH=386 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o mediaProxy-windows-386.exe
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o mediaProxy-windows-amd64.exe
           GOOS=freebsd GOARCH=386 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o mediaProxy-freebsd-386
           GOOS=freebsd GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -installsuffix netgo -o mediaProxy-freebsd-amd64
           echo "FILESNAME=$PWD" >> $GITHUB_ENV
