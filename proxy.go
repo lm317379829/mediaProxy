@@ -693,6 +693,8 @@ func handleGet(w http.ResponseWriter, req *http.Request) {
 		if tmpReg.MatchString(contentDisposition) {
 			contentDisposition = tmpReg.ReplaceAllString(contentDisposition, "$1")
 		}
+	} else {
+		contentDisposition = fmt.Sprintf("attachment; filename=%q", downloadUrl[strings.LastIndex(downloadUrl, "/")+1:])
 	}
 	if strings.HasSuffix(contentDisposition, ".webm") {
 		contentType = "video/webm"
@@ -723,6 +725,7 @@ func handleGet(w http.ResponseWriter, req *http.Request) {
 	}
 	w.Header().Del("content-type")
 	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", contentDisposition)
 	w.Header().Del("content-length")
 	w.Header().Set("Content-Length", fmt.Sprint(rangeEnd-rangeStart+1))
 	if !noContentRange {
