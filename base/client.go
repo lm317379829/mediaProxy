@@ -3,6 +3,7 @@ package base
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"net"
 	"net/http"
 	"time"
@@ -56,13 +57,19 @@ func NewRestyClient() *resty.Client {
 
 	transport := &http.Transport{
 		DialContext: dialer.DialContext,
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+			VerifyPeerCertificate: func(certificates [][]byte, _ [][]*x509.Certificate) error {
+				// 完全忽略证书验证
+				return nil
+			},
+		},
 	}
 
 	client := resty.New().
 		SetHeader("user-agent", UserAgent).
 		SetRetryCount(3).
 		SetTimeout(DefaultTimeout).
-		SetTLSClientConfig(&tls.Config{InsecureSkipVerify: true}).
 		SetTransport(transport)
 	return client
 }

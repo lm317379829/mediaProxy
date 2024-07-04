@@ -133,7 +133,6 @@ func ConcurrentDownload(downloadUrl string, rangeStart int64, rangeEnd int64, fi
 			}
 		}
 		buffer := p.ProxyRead()
-		// mediaCache.Set("lenbuffer", len(buffer), 300*time.Second)
 
 		if len(buffer) == 0 {
 			p.ProxyStop()
@@ -186,7 +185,6 @@ func (p *ProxyDownloadStruct) ProxyRead() []byte {
 		p.ProxyStop()
 		return nil
 	}
-	// log.Debugf("get currentChunk")
 
 	for {
 		if !p.ProxyRunning {
@@ -276,7 +274,6 @@ func (p *ProxyDownloadStruct) ProxyWorker(req *http.Request) {
 						newHeader[name] = value
 					}
 				}
-				// log.Debugf("try downloadUrl:hide range=%d-%d", chunk.startOffset, chunk.endOffset)
 				var resp *resty.Response
 				var err error
 				for retry := 0; retry < retryCount; retry++ {
@@ -310,10 +307,8 @@ func (p *ProxyDownloadStruct) ProxyWorker(req *http.Request) {
 				}
 
 				// 接收数据
-				// var buffer []byte
 				buffer := make([]byte, chunk.endOffset-chunk.startOffset+1)
 				copy(buffer, resp.Body())
-				// log.Debugf("ProxyWorker get buffer len:%+v resp.Body() len:%+v", len(buffer), len(resp.Body()))
 				chunk.put(buffer)
 				resp = nil
 				break
@@ -326,15 +321,13 @@ func handleMethod(w http.ResponseWriter, req *http.Request) {
 	switch req.Method {
 	case http.MethodGet:
 		// 处理 GET 请求
-		log.Println("Received a GET request")
+		log.Println("正在 GET 请求")
 		// 检查查询参数是否为空
 		if req.URL.RawQuery == "" {
-			// 如果没有查询参数，则返回 index.html 的内容
-
 			// 获取嵌入的 index.html 文件
 			index, err := indexHTML.Open("static/index.html")
 			if err != nil {
-				http.Error(w, "500, 内部服务器错误", 500)
+				http.Error(w, fmt.Sprintf("读取index.html错误: %v", err), http.StatusBadRequest)
 				return
 			}
 			defer index.Close()
@@ -348,12 +341,12 @@ func handleMethod(w http.ResponseWriter, req *http.Request) {
 		}
 	case http.MethodPost:
 		// 处理 POST 请求
-		log.Println("Received a POST request")
+		log.Println("正在处理 POST 请求")
 		handlePost(w, req)
 	default:
 		// 处理其他方法的请求
 		log.Println("Received a request with method:", req.Method)
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, fmt.Sprintf("不支持 %s 请求", req.Method), http.StatusMethodNotAllowed)
 	}
 }
 
@@ -370,7 +363,7 @@ func handlePost(w http.ResponseWriter, req *http.Request) {
 		if strForm == "base64" {
 			bytesPostUrl, err := base64.StdEncoding.DecodeString(postUrl)
 			if err != nil {
-				http.Error(w, "Invalid base64 URL", http.StatusBadRequest)
+				http.Error(w, fmt.Sprintf("无效的 Base64 URL: %v", err), http.StatusBadRequest)
 				return
 			}
 			postUrl = string(bytesPostUrl)
@@ -388,14 +381,14 @@ func handlePost(w http.ResponseWriter, req *http.Request) {
 		if strForm == "base64" {
 			bytesStrHeader, err := base64.StdEncoding.DecodeString(strHeader)
 			if err != nil {
-				http.Error(w, "Invalid base64 HEADER", http.StatusBadRequest)
+				http.Error(w, fmt.Sprintf("无效的Base64 Headers: %v", err), http.StatusBadRequest)
 				return
 			}
 			strHeader = string(bytesStrHeader)
 		}
 		err := json.Unmarshal([]byte(strHeader), &header)
 		if err != nil {
-			http.Error(w, "Invalid header JSON", http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf("Headers Json格式化错误: %v", err), http.StatusBadRequest)
 			return
 		}
 		for key, value := range header {
@@ -423,7 +416,7 @@ func handlePost(w http.ResponseWriter, req *http.Request) {
 	// 读取请求体以记录
 	postBody, err := io.ReadAll(req.Body)
 	if err != nil {
-		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("读取 Post 参数错误: %v", err), http.StatusBadRequest)
 		return
 	}
 
@@ -438,7 +431,7 @@ func handlePost(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		log.Debugf("postUrl:%v fail:%+v", postUrl, err)
 		time.Sleep(1 * time.Second)
-		http.Error(w, err.Error(), 500)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		resp = nil
 		return
 	}
@@ -477,7 +470,7 @@ func handleGet(w http.ResponseWriter, req *http.Request) {
 		if strForm == "base64" {
 			bytesDownloadUrl, err := base64.StdEncoding.DecodeString(downloadUrl)
 			if err != nil {
-				http.Error(w, "Invalid base64 URL", http.StatusBadRequest)
+				http.Error(w, fmt.Sprintf("无效的 Base64 URL: %v", err), http.StatusBadRequest)
 				return
 			}
 			downloadUrl = string(bytesDownloadUrl)
@@ -485,7 +478,7 @@ func handleGet(w http.ResponseWriter, req *http.Request) {
 	} else {
 		log.Debugf("缺少URL参数")
 		time.Sleep(1 * time.Second)
-		http.Error(w, "缺少URL参数", 500)
+		http.Error(w, "缺少URL参数", 404)
 		return
 	}
 	if strHeader != "" {
@@ -493,14 +486,14 @@ func handleGet(w http.ResponseWriter, req *http.Request) {
 		if strForm == "base64" {
 			bytesStrHeader, err := base64.StdEncoding.DecodeString(strHeader)
 			if err != nil {
-				http.Error(w, "Invalid base64 HEADER", http.StatusBadRequest)
+				http.Error(w, fmt.Sprintf("无效的Base64 Headers: %v", err), http.StatusBadRequest)
 				return
 			}
 			strHeader = string(bytesStrHeader)
 		}
 		err := json.Unmarshal([]byte(strHeader), &header)
 		if err != nil {
-			http.Error(w, "Invalid header JSON", http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf("Headers Json格式化错误: %v", err), http.StatusBadRequest)
 			return
 		}
 		for key, value := range header {
@@ -560,7 +553,7 @@ func handleGet(w http.ResponseWriter, req *http.Request) {
 		if err != nil {
 			log.Debugf("downloadUrl:%v fail:%+v", downloadUrl, err)
 			time.Sleep(1 * time.Second)
-			http.Error(w, err.Error(), 500)
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			resp = nil
 			return
 		}
@@ -587,7 +580,7 @@ func handleGet(w http.ResponseWriter, req *http.Request) {
 			if matcher != nil {
 				tmpContentSize, _ = strconv.ParseInt(matcher[1], 10, 64)
 			} else {
-				http.Error(w, "no content-range", 500)
+				http.Error(w, "Headers缺少 Content-Range 参数", http.StatusBadRequest)
 				return
 			}
 		} else {
@@ -616,7 +609,7 @@ func handleGet(w http.ResponseWriter, req *http.Request) {
 		if matcher != nil {
 			contentSize, _ = strconv.ParseInt(matcher[1], 10, 64)
 		} else {
-			http.Error(w, "no content-range", 500)
+			http.Error(w, "Headers缺少 Content-Range 参数", http.StatusBadRequest)
 			return
 		}
 	} else {
@@ -657,7 +650,6 @@ func handleGet(w http.ResponseWriter, req *http.Request) {
 	if strSplitSize != "" {
 		splitSize, _ = strconv.ParseInt(strSplitSize, 10, 64)
 	}
-	// log.Debugf("thread:%+v splitSize:%+v", numTasks, splitSize)
 	if rangeEnd-rangeStart > 512*1024*1024 {
 		if contentSize < 1*1024*1024*1024 {
 			if numTasks > 16 {
