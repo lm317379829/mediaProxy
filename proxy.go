@@ -524,13 +524,14 @@ func handleGet(w http.ResponseWriter, req *http.Request) {
 	}
 	headersKey := downloadUrl + "#PROXYDOWNLOAD_HEADERS"
 	cacheTimeKey := downloadUrl + "#PROXYDOWNLOAD_LASTMODIFIED"
-	lastModifiedI, found := mediaCache.Get(cacheTimeKey)
+	lastModifiedCache, found := mediaCache.Get(cacheTimeKey)
 	var lastModified int64
 	if found {
-		lastModified = lastModifiedI.(int64)
+		lastModified = lastModifiedCache.(int64)
 	} else {
 		lastModified = int64(0)
 	}
+
 	var responseHeaders interface{}
 
 	curTime := time.Now().Unix()
@@ -541,6 +542,7 @@ func handleGet(w http.ResponseWriter, req *http.Request) {
 			newHeader[name] = value
 		}
 	}
+
 	if !found || curTime-lastModified > 60 {
 		resp, err := base.RestyClient.
 			SetTimeout(10*time.Second).
@@ -590,6 +592,7 @@ func handleGet(w http.ResponseWriter, req *http.Request) {
 		mediaCache.Set(headersKey, responseHeaders, 1800*time.Second)
 		mediaCache.Set(cacheTimeKey, curTime, 1800*time.Second)
 	}
+	
 	ContentLength := responseHeaders.(http.Header).Get("Content-Length")
 	if ContentLength == "" {
 		ContentLength = responseHeaders.(http.Header).Get("content-length")
