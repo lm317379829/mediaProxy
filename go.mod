@@ -1,17 +1,16 @@
-module mediaProxy
+module MediaProxy
 
-go 1.20
+go 1.21.0
 
 require (
-	github.com/Xhofe/go-cache v0.0.0-20220723083548-714439c8af9a
-	github.com/go-resty/resty/v2 v2.7.0
-	github.com/sirupsen/logrus v1.9.2
+	github.com/bzsome/chaoGo v0.0.0-20200507035022-6877566c86c4
+	github.com/go-resty/resty/v2 v2.14.0
+	github.com/patrickmn/go-cache v2.1.0+incompatible
+	github.com/sirupsen/logrus v1.9.3
 )
 
-require src.techknowlogick.com/xgo v1.7.1-0.20230606181629-494bc06f804a // indirect
-
 require (
-	github.com/patrickmn/go-cache v2.1.0+incompatible
-	golang.org/x/net v0.10.0 // indirect
-	golang.org/x/sys v0.8.0 // indirect
+	golang.org/x/net v0.27.0 // indirect
+	golang.org/x/sys v0.22.0 // indirect
+	gopkg.in/eapache/queue.v1 v1.1.0 // indirect
 )
