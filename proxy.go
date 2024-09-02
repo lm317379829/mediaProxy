@@ -65,7 +65,7 @@ type ProxyDownloadStruct struct {
 	CurrentChunk         int64
 	ChunkSize            int64
 	MaxBufferedChunk     int64
-	startOffset			 int64
+	startOffset          int64
 	EndOffset            int64
 	ProxyMutex           *sync.Mutex
 	ProxyTimeout         int64
