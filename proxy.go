@@ -134,12 +134,12 @@ func ConcurrentDownload(downloadUrl string, rangeStart int64, rangeEnd int64, fi
 			return
 		}
 
-		_, ok := emitter.Write(buffer)
+		_, err := emitter.Write(buffer)
 
-		if ok != nil {
+		if err != nil {
 			p.ProxyStop()
 			emitter.Close()
-			logrus.Debugf("emitter写入失败, 错误: %+v", ok)
+			logrus.Errorf("emitter写入失败, 错误: %+v", err)
 			buffer = nil
 			return
 		}
@@ -147,7 +147,6 @@ func ConcurrentDownload(downloadUrl string, rangeStart int64, rangeEnd int64, fi
 		if p.CurrentOffset >= rangeEnd {
 			p.ProxyStop()
 			emitter.Close()
-			// logrus.Debugf("所有服务已经完成: %+v, 大小: %+v", loopCount, totalLength)
 			logrus.Debugf("所有服务已经完成大小: %+v", totalLength)
 			buffer = nil
 			return
@@ -281,7 +280,7 @@ func (p *ProxyDownloadStruct) ProxyWorker(req *http.Request) {
 						Get(p.DownloadUrl)
 					
 					if err != nil {
-						logrus.Debugf("处理 %+v 链接 range=%d-%d 部分失败: %+v", p.DownloadUrl, chunk.startOffset, chunk.endOffset, err)
+						logrus.Errorf("处理 %+v 链接 range=%d-%d 部分失败: %+v", p.DownloadUrl, chunk.startOffset, chunk.endOffset, err)
 						time.Sleep(1 * time.Second)
 						resp = nil
 						continue
@@ -837,7 +836,7 @@ func main() {
 	logrus.Infof("服务器运行在 %s 端口.", *port)
 
 	// 开启Debug
-	logrus.SetLevel(logrus.DebugLevel)
+	//logrus.SetLevel(logrus.DebugLevel)
 
 	// 设置 DNS 解析器 IP
 	base.DnsResolverIP = *dns
