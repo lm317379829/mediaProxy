@@ -27,7 +27,6 @@ import (
 	"MediaProxy/base"
 
 	// 第三方库
-	"github.com/bzsome/chaoGo/workpool"
 	"github.com/go-resty/resty/v2"
 	"github.com/patrickmn/go-cache"
 	"github.com/sirupsen/logrus"
@@ -66,6 +65,7 @@ type ProxyDownloadStruct struct {
 	CurrentChunk         int64
 	ChunkSize            int64
 	MaxBufferedChunk     int64
+	startOffset			 int64
 	EndOffset            int64
 	ProxyMutex           *sync.Mutex
 	ProxyTimeout         int64
@@ -85,13 +85,14 @@ func newProxyDownloadStruct(downloadUrl string, proxyTimeout int64, maxBuferredC
 		ChunkSize:            chunkSize,
 		NextChunkStartOffset: startOffset,
 		CurrentOffset:        startOffset,
+		startOffset:          startOffset,
 		EndOffset:            endOffset,
 		ThreadCount:          numTasks,
 		DownloadUrl:          downloadUrl,
 		CookieJar:            cookiejar,
 	}
 }
-// func ConcurrentDownload(downloadUrl string, rangeStart int64, rangeEnd int64, fileSize int64, splitSize int64, numTasks int64, emitter *base.Emitter, cacheKey string, req *http.Request)
+
 func ConcurrentDownload(downloadUrl string, rangeStart int64, rangeEnd int64, fileSize int64, splitSize int64, numTasks int64, emitter *base.Emitter, req *http.Request) {
 	jar, _ := cookiejar.New(nil)
 	cookies := req.Cookies()
@@ -113,39 +114,14 @@ func ConcurrentDownload(downloadUrl string, rangeStart int64, rangeEnd int64, fi
 	logrus.Debugf("正在处理: %+v, rangeStart: %+v, rangeEnd: %+v, contentLength :%+v, splitSize: %+v, numSplits: %+v, numTasks: %+v", downloadUrl, rangeStart, rangeEnd, totalLength, splitSize, numSplits, numSplits)
 	maxChunks := int64(128*1024*1024) / splitSize
 	p := newProxyDownloadStruct(downloadUrl, proxyTimeout, maxChunks, splitSize, rangeStart, rangeEnd, numTasks, jar)
-
-	var workPool *workpool.WorkPool
-	workPoolKey := downloadUrl + "#Workpool"
-	if x, found := mediaCache.Get(workPoolKey); found {
-		workPool = x.(*workpool.WorkPool)
-		if workPool == nil {
-			workPool = workpool.New(int(numTasks))
-			workPool.SetTimeout(time.Duration(proxyTimeout) * time.Second)
-			mediaCache.Set(workPoolKey, workPool, 14400*time.Second)
-		}
-	} else {
-		workPool = workpool.New(int(numTasks))
-		workPool.SetTimeout(time.Duration(proxyTimeout) * time.Second)
-		mediaCache.Set(workPoolKey, workPool, 14400*time.Second)
-	}
 	for numSplit := 0; numSplit < int(numSplits); numSplit++ {
 		go p.ProxyWorker(req)
-		workPool.Do(func() error {
-			p.ProxyWorker(req)
-			return nil
-		})
 	}
 
 	defer func() {
 		p.ProxyStop()
 		p = nil
 	}()
-	
-	/*
-	loopCount := 0
-	initLevel, _ := mediaCache.Get(cacheKey)
-	logrus.Debugf("loopCount: %+v, initLevel: %+v", loopCount, initLevel)
-	*/
 
 	for {
 		buffer := p.ProxyRead()
@@ -167,13 +143,7 @@ func ConcurrentDownload(downloadUrl string, rangeStart int64, rangeEnd int64, fi
 			buffer = nil
 			return
 		}
-		/*
-		if loopCount%100 == 0 {
-			loopCount = 0
-			// logrus.Debugf("服务 %d 被阻塞", loopCount)
-		}
-		loopCount += 1
-		*/
+
 		if p.CurrentOffset >= rangeEnd {
 			p.ProxyStop()
 			emitter.Close()
@@ -240,27 +210,15 @@ func (p *ProxyDownloadStruct) ProxyWorker(req *http.Request) {
 		if !p.ProxyRunning {
 			break
 		}
-		/*
-		bufferSize := int64(128 * 1024)
-		*/
-		var bufferSize int64
-		if p.ThreadCount == 1 {
-			bufferSize = int64(128 * 1024)
-		} else {
-			bufferSize = p.ChunkSize
-		}
-		
 
 		p.ProxyMutex.Lock()
 		// 生成下一个chunk
 		var chunk *Chunk
 		chunk = nil
 		startOffset := p.NextChunkStartOffset
-		// p.NextChunkStartOffset += p.ChunkSize
-		p.NextChunkStartOffset += bufferSize
+		p.NextChunkStartOffset += p.ChunkSize
 		if startOffset <= p.EndOffset {
-			// endOffset := startOffset + p.ChunkSize - 1
-			endOffset := startOffset + bufferSize - 1
+			endOffset := startOffset + p.ChunkSize - 1
 			if endOffset > p.EndOffset {
 				endOffset = p.EndOffset
 			}
@@ -280,12 +238,13 @@ func (p *ProxyDownloadStruct) ProxyWorker(req *http.Request) {
 				break
 			} else {
 				// 过多的数据未被取走，先休息一下，避免内存溢出
-				remainingSize := p.GetRemainingSize(bufferSize)
+				remainingSize := p.GetRemainingSize(p.ChunkSize)
 				maxBufferSize := p.ChunkSize*p.MaxBufferedChunk
 				if remainingSize >= maxBufferSize {
-					logrus.Debugf("未读取数据大小: %d 大于 缓冲区大小: %d ，先休息一下，避免内存溢出", remainingSize, maxBufferSize)
+					logrus.Debugf("未读取数据: %d >= 缓冲区: %d ，先休息一下，避免内存溢出", remainingSize, maxBufferSize)
 					time.Sleep(1 * time.Second)
 				} else {
+					logrus.Debugf("未读取数据: %d < 缓冲区: %d , 下载继续", remainingSize, maxBufferSize)
 					break
 				}
 			}
@@ -312,44 +271,14 @@ func (p *ProxyDownloadStruct) ProxyWorker(req *http.Request) {
 				var resp *resty.Response
 				var err error
 				for retry := 0; retry < maxRetries; retry++ {
-					/*
-					// 在每次新请求前，关闭之前的resp
-    				if resp != nil && resp.RawBody() != nil {
-        				resp.RawBody().Close()
-       					resp = nil
-    				}
 					resp, err = base.RestyClient.
 						SetTimeout(10*time.Second).
 						SetRetryCount(1).
 						SetCookieJar(p.CookieJar).
 						R().
-						SetDoNotParseResponse(true).
 						SetHeaderMultiValues(newHeader).
 						SetHeader("Range", rangeStr).
 						Get(p.DownloadUrl)
-					*/
-					
-					if p.ThreadCount == 1 {
-						resp, err = base.RestyClient.
-							SetTimeout(10*time.Second).
-							SetRetryCount(1).
-							SetCookieJar(p.CookieJar).
-							R().
-							SetDoNotParseResponse(true).
-							SetHeaderMultiValues(newHeader).
-							SetHeader("Range", rangeStr).
-							Get(p.DownloadUrl)
-					} else {
-						resp, err = base.RestyClient.
-							SetTimeout(10*time.Second).
-							SetRetryCount(1).
-							SetCookieJar(p.CookieJar).
-							R().
-							// SetDoNotParseResponse(true).
-							SetHeaderMultiValues(newHeader).
-							SetHeader("Range", rangeStr).
-							Get(p.DownloadUrl)
-					}
 					
 					if err != nil {
 						logrus.Debugf("处理 %+v 链接 range=%d-%d 部分失败: %+v", p.DownloadUrl, chunk.startOffset, chunk.endOffset, err)
@@ -358,75 +287,26 @@ func (p *ProxyDownloadStruct) ProxyWorker(req *http.Request) {
 						continue
 					}
 					if !strings.HasPrefix(resp.Status(), "20") {
-						/*
-						bodyBytes, _ := io.ReadAll(resp.RawBody())
-						logrus.Debugf("处理 %+v 链接 range=%d-%d 部分失败, statusCode: %+v: %s", p.DownloadUrl, chunk.startOffset, chunk.endOffset, resp.StatusCode(), string(bodyBytes))
-						if resp != nil {
-							resp.RawBody().Close()
-						}
-						*/
 						logrus.Debugf("处理 %+v 链接 range=%d-%d 部分失败, statusCode: %+v: %s", p.DownloadUrl, chunk.startOffset, chunk.endOffset, resp.StatusCode(), resp.String())
-						
 						resp = nil
 						p.ProxyStop()
 						return
-						// break
 					}
 					break
 				}
 
 				if err != nil {
-					/*
-					if resp != nil {
-						resp.RawBody().Close()
-					}
-					*/
 					resp = nil
 					p.ProxyStop()
 					return
 				}
 
 				// 接收数据
-				/*
-				if resp != nil && resp.RawBody() != nil {
-					defer resp.RawBody().Close()
-					buffer := make([]byte, bufferSize)
-					for {
-						n, err := resp.RawBody().Read(buffer)
-						if err != nil {
-							if err == io.EOF {
-								break
-							}
-							logrus.Debugf("读取 Response Body 错误: %v", err)
-						}
-						chunk.put(buffer[:n])	
-					}
+				if resp != nil && resp.Body() != nil {
+					buffer := make([]byte, chunk.endOffset-chunk.startOffset+1)
+					copy(buffer, resp.Body())
+					chunk.put(buffer)
 				}
-				*/
-				if p.ThreadCount == 1 {
-					if resp != nil && resp.RawBody() != nil {
-						buffer := make([]byte, bufferSize)
-						for {
-							n, err := resp.RawBody().Read(buffer)
-							if err != nil {
-								if err == io.EOF {
-									break
-								}
-								logrus.Debugf("读取 Response Body 错误: %v", err)
-							}
-							chunk.put(buffer[:n])
-							resp.RawBody().Close()
-						}
-					}
-				} else {
-					if resp != nil && resp.Body() != nil {
-						buffer := make([]byte, chunk.endOffset-chunk.startOffset+1)
-						copy(buffer, resp.Body())
-						chunk.put(buffer)
-					}
-
-				}
-				
 				resp = nil
 				break
 			}
@@ -572,28 +452,76 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 	var responseHeaders interface{}
 	responseHeaders, found = mediaCache.Get(headersKey)
 	if !found || curTime-lastModified > 60 {
+		// 关闭 Idle 超时设置
+		base.IdleConnTimeout = 0
 		resp, err := base.RestyClient.
-		SetTimeout(10*time.Second).
-		SetRetryCount(3).
-		SetCookieJar(jar).
-		R().
-		SetOutput(os.DevNull).
-		SetHeaderMultiValues(newHeader).
-		SetHeader("Range", "bytes=0-1023").
-		Get(url)
+			SetTimeout(0).
+			SetRetryCount(3).
+			SetCookieJar(jar).
+			R().
+			SetDoNotParseResponse(true).
+			SetOutput(os.DevNull).
+			SetHeaderMultiValues(newHeader).
+			SetHeader("Range", "bytes=0-1023").
+			Get(url)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("下载 %v 链接失败: %v", url, err), http.StatusInternalServerError)
-			resp = nil
 			return
 		}
 		if resp.StatusCode() < 200 || resp.StatusCode() >= 400 {
 			http.Error(w, resp.Status(), resp.StatusCode())
-			resp = nil
 			return
 		}
 
 		responseHeaders = resp.Header()
 		logrus.Debugf("请求头: %+v", responseHeaders.(http.Header))
+
+		var fileName string
+		contentDisposition := strings.ToLower(responseHeaders.(http.Header).Get("Content-Disposition"))
+		if contentDisposition != "" {
+			regCompile := regexp.MustCompile(`^.*filename=\"([^\"]+)\".*$`)
+			if regCompile.MatchString(contentDisposition) {
+				fileName = regCompile.ReplaceAllString(contentDisposition, "$1")
+			}
+		} else {
+			// 找到最后一个 "/" 的索引
+			lastSlashIndex := strings.LastIndex(url, "/")
+			// 找到第一个 "?" 的索引
+			queryIndex := strings.Index(url, "?")
+			if queryIndex == -1 {
+				// 如果没有 "?"，则提取从最后一个 "/" 到结尾的字符串
+				fileName = url[lastSlashIndex+1:]
+			} else {
+				// 如果存在 "?"，则提取从最后一个 "/" 到 "?" 之间的字符串
+				fileName = url[lastSlashIndex+1 : queryIndex]
+			}
+		}
+
+		contentType := responseHeaders.(http.Header).Get("Content-Type")
+		if contentType == "" {
+			if strings.HasSuffix(fileName, ".webm") {
+				contentType = "video/webm"
+			} else if strings.HasSuffix(fileName, ".avi") {
+				contentType = "video/x-msvideo"
+			} else if strings.HasSuffix(fileName, ".wmv") {
+				contentType = "video/x-ms-wmv"
+			} else if strings.HasSuffix(fileName, ".flv") {
+				contentType = "video/x-flv"
+			} else if strings.HasSuffix(fileName, ".mov") {
+				contentType = "video/quicktime"
+			} else if strings.HasSuffix(fileName, ".mkv") {
+				contentType = "video/x-matroska"
+			} else if strings.HasSuffix(fileName, ".ts") {
+				contentType = "video/mp2t"
+			} else if strings.HasSuffix(fileName, ".mpeg") || strings.HasSuffix(fileName, ".mpg") {
+				contentType = "video/mpeg"
+			} else if strings.HasSuffix(fileName, ".3gpp") || strings.HasSuffix(fileName, ".3gp") {
+				contentType = "video/3gpp"
+			} else if strings.HasSuffix(fileName, ".mp4") || strings.HasSuffix(fileName, ".m4s") {
+				contentType = "video/mp4"
+			}
+			responseHeaders.(http.Header).Set("Content-Type", contentType)
+		}
 
 		contentRange := responseHeaders.(http.Header).Get("Content-Range")
 		if contentRange != "" {
@@ -603,38 +531,70 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 		} else {
 			responseHeaders.(http.Header).Set("Content-Length", strconv.FormatInt(resp.Size(), 10))
 		}
-		mediaCache.Set(headersKey, responseHeaders, 1800*time.Second)
-		mediaCache.Set(cacheTimeKey, curTime, 1800*time.Second)
-	}
 
-	var fileName string
-	contentDisposition := strings.ToLower(responseHeaders.(http.Header).Get("Content-Disposition"))
-	if contentDisposition != "" {
-		regCompile := regexp.MustCompile(`^.*filename=\"([^\"]+)\".*$`)
-		if regCompile.MatchString(contentDisposition) {
-			fileName = regCompile.ReplaceAllString(contentDisposition, "$1")
+		acceptRange := responseHeaders.(http.Header).Get("Accept-Ranges")
+		if contentRange == "" && acceptRange == "" {
+			// 不支持断点续传
+			remainingSize := 0
+			const maxBufferSize = 128*1024*1024 // 128MB
+			// const maxBufferSize = 1*1024 // 1KB
+
+			buf := make([]byte, 1024*64) // 64KB 缓冲区
+			for {
+				n, err := resp.RawBody().Read(buf)
+				if n > 0 {
+					// 写入到客户端前更新未消费的数据大小
+					remainingSize += n
+					// 写入数据到客户端
+					_, writeErr := pw.Write(buf[:n])
+					if writeErr != nil {
+						logrus.Errorf("向客户端写入 Response 失败: %v", writeErr)
+						return
+					}
+				}
+				if err != nil {
+					if err != io.EOF {
+						logrus.Errorf("读取 Response Body 错误: %v", err)
+					}
+					break
+				}
+			}
+			responseHeaders.(http.Header).Set("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s", fileName))
+
+		} else {
+			// 支持断点续传
+			mediaCache.Set(headersKey, responseHeaders, 1800*time.Second)
+			mediaCache.Set(cacheTimeKey, curTime, 1800*time.Second)
 		}
-	} else {
-		fileName = url[strings.LastIndex(url, "/")+1:]
+
+		defer func ()  {
+			if resp != nil && resp.RawBody() != nil {
+				logrus.Debugf("resp.RawBody 已关闭")
+				resp.RawBody().Close()
+			}
+		}()
 	}
 
-	var splitSize int64
-	var numTasks int64
-
-	contentSize := int64(0)
 	acceptRange := responseHeaders.(http.Header).Get("Accept-Ranges")
 	contentRange := responseHeaders.(http.Header).Get("Content-Range")
 	if contentRange == "" && acceptRange == "" {
 		// 不支持断点续传
-		contentSize, _ = strconv.ParseInt(responseHeaders.(http.Header).Get("Content-Length"), 10, 64)
-		splitSize = contentSize
-		numTasks = 1
-		rangeStart = 0
-		rangeEnd = contentSize
-		responseHeaders.(http.Header).Set("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s", fileName))
+		for key, values := range responseHeaders.(http.Header) {
+			if strings.EqualFold(strings.ToLower(key), "connection") || strings.EqualFold(strings.ToLower(key), "proxy-connection") {
+				continue
+			}
+			w.Header().Set(key, strings.Join(values, ","))
+		}
+		w.Header().Set("Connection", "keep-alive")
+		w.WriteHeader(statusCode)
+
 	} else {
 		// 支持断点续传
-		matchGroup := regexp.MustCompile(`.*/([0-9]+)`).FindStringSubmatch(contentRange)
+		var splitSize int64
+		var numTasks int64
+	
+		contentSize := int64(0)
+		matchGroup = regexp.MustCompile(`.*/([0-9]+)`).FindStringSubmatch(contentRange)
 		if matchGroup != nil {
 			contentSize, _ = strconv.ParseInt(matchGroup[1], 10, 64)
 		} else {
@@ -644,6 +604,7 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 		if rangeEnd == int64(0) {
 			rangeEnd = contentSize - 1
 		}
+
 		if strThread == "" {
 			if rangeEnd-rangeStart > 512*1024*1024 {
 				if contentSize < 1*1024*1024*1024 {
@@ -666,69 +627,34 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 				numTasks = 1
 			}
 		}
+
 		if strSplitSize != "" {
 			splitSize, _ = strconv.ParseInt(strSplitSize, 10, 64)
 		} else {
 			splitSize = int64(128 * 1024)
 		}
 		responseHeaders.(http.Header).Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", rangeStart, rangeEnd, contentSize))
-	}
-
-	rp, wp := io.Pipe()
-	// cacheKey := url + "#Lock"
-	/*
-	_, found = mediaCache.Get(cacheKey)
-	if !found {
-		mediaCache.Set(cacheKey, 0, 14400*time.Second)
-	}
-	mediaCache.IncrementInt(cacheKey, 1)
-	*/
-
-	emitter := base.NewEmitter(rp, wp)
-
-	go ConcurrentDownload(url, rangeStart, rangeEnd, contentSize, splitSize, numTasks, emitter, req)
-	//go ConcurrentDownload(url, rangeStart, rangeEnd, contentSize, splitSize, numTasks, emitter, cacheKey, req)
-
-	contentType := responseHeaders.(http.Header).Get("Content-Type")
-	if contentType == "" {
-		if strings.HasSuffix(fileName, ".webm") {
-			contentType = "video/webm"
-		} else if strings.HasSuffix(fileName, ".avi") {
-			contentType = "video/x-msvideo"
-		} else if strings.HasSuffix(fileName, ".wmv") {
-			contentType = "video/x-ms-wmv"
-		} else if strings.HasSuffix(fileName, ".flv") {
-			contentType = "video/x-flv"
-		} else if strings.HasSuffix(fileName, ".mov") {
-			contentType = "video/quicktime"
-		} else if strings.HasSuffix(fileName, ".mkv") {
-			contentType = "video/x-matroska"
-		} else if strings.HasSuffix(fileName, ".ts") {
-			contentType = "video/mp2t"
-		} else if strings.HasSuffix(fileName, ".mpeg") || strings.HasSuffix(fileName, ".mpg") {
-			contentType = "video/mpeg"
-		} else if strings.HasSuffix(fileName, ".3gpp") || strings.HasSuffix(fileName, ".3gp") {
-			contentType = "video/3gpp"
-		} else if strings.HasSuffix(fileName, ".mp4") || strings.HasSuffix(fileName, ".m4s") {
-			contentType = "video/mp4"
+		
+		rp, wp := io.Pipe()
+		emitter := base.NewEmitter(rp, wp)
+		
+		go ConcurrentDownload(url, rangeStart, rangeEnd, contentSize, splitSize, numTasks, emitter, req)
+		
+		for key, values := range responseHeaders.(http.Header) {
+			if strings.EqualFold(strings.ToLower(key), "connection") || strings.EqualFold(strings.ToLower(key), "proxy-connection") {
+				continue
+			}
+			w.Header().Set(key, strings.Join(values, ","))
 		}
-		responseHeaders.(http.Header).Set("Content-Type", contentType)
-	}
+		w.Header().Set("Connection", "keep-alive")
+		w.WriteHeader(statusCode)
+		io.Copy(pw, emitter)
 
-	for key, values := range responseHeaders.(http.Header) {
-		if strings.EqualFold(strings.ToLower(key), "connection") || strings.EqualFold(strings.ToLower(key), "proxy-connection") {
-			continue
-		}
-		w.Header().Set(key, strings.Join(values, ","))
+		defer func() {
+			emitter.Close()
+			logrus.Debugf("handleGetMethod emitter 已关闭-支持断点续传")
+		}()
 	}
-	w.Header().Set("Connection", "close")
-	w.WriteHeader(statusCode)
-	io.Copy(pw, emitter)
-
-	defer func() {
-		emitter.Close()
-		logrus.Debugf("handleGetMethod emitter 已关闭")
-	}()
 }
 
 func handleOtherMethod(w http.ResponseWriter, req *http.Request) {
@@ -911,7 +837,7 @@ func main() {
 	logrus.Infof("服务器运行在 %s 端口.", *port)
 
 	// 开启Debug
-	// logrus.SetLevel(logrus.DebugLevel)
+	logrus.SetLevel(logrus.DebugLevel)
 
 	// 设置 DNS 解析器 IP
 	base.DnsResolverIP = *dns
