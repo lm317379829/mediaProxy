@@ -17,8 +17,9 @@ var (
 	RestyClientWithProxy      *resty.Client
 	HttpClient                *http.Client
 	DnsResolverIP             string  // 初始化为空字符串
+	IdleConnTimeout           = 10 * time.Second
 	dnsResolverProto          = "udp"
-	dnsResolverTimeoutMs      = 7000
+	dnsResolverTimeoutMs      = 10000
 )
 var UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36"
 var DefaultTimeout = time.Second * 30
@@ -44,6 +45,7 @@ func InitClient() {
 
 func NewRestyClient() *resty.Client {
 	dialer := &net.Dialer{
+		// Timeout: ConnectTimeout * time.Second, // 设置连接超时为
 		Resolver: &net.Resolver{
 			PreferGo: true,
 			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
@@ -64,6 +66,7 @@ func NewRestyClient() *resty.Client {
 				return nil
 			},
 		},
+		IdleConnTimeout: IdleConnTimeout,
 	}
 
 	client := resty.New().
@@ -76,6 +79,7 @@ func NewRestyClient() *resty.Client {
 
 func NewHttpClient() *http.Client {
 	dialer := &net.Dialer{
+		// Timeout: ConnectTimeout, // 设置连接超时为
 		Resolver: &net.Resolver{
 			PreferGo: true,
 			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
@@ -92,6 +96,7 @@ func NewHttpClient() *http.Client {
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 			DialContext:     dialer.DialContext,
+			IdleConnTimeout: IdleConnTimeout,
 		},
 	}
 }
