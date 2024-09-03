@@ -65,7 +65,7 @@ type ProxyDownloadStruct struct {
 	CurrentChunk         int64
 	ChunkSize            int64
 	MaxBufferedChunk     int64
-	startOffset          int64
+	startOffset	     int64
 	EndOffset            int64
 	ProxyMutex           *sync.Mutex
 	ProxyTimeout         int64
@@ -603,42 +603,51 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 		if rangeEnd == int64(0) {
 			rangeEnd = contentSize - 1
 		}
-
-		if strThread == "" {
-			if rangeEnd-rangeStart > 512*1024*1024 {
-				if contentSize < 1*1024*1024*1024 {
-					if numTasks > 16 {
-						numTasks = 16
-					}
-				} else if contentSize < 4*1024*1024*1024 {
-					if numTasks > 32 {
-						numTasks = 32
-					}
-				} else if contentSize < 16*1024*1024*1024 {
-					if numTasks > 64 {
-						numTasks = 64
+		if rangeStart < contentSize {
+			if strThread == "" {
+				if rangeEnd-rangeStart > 512*1024*1024 {
+					if contentSize < 1*1024*1024*1024 {
+						if numTasks > 16 {
+							numTasks = 16
+						}
+					} else if contentSize < 4*1024*1024*1024 {
+						if numTasks > 32 {
+							numTasks = 32
+						}
+					} else if contentSize < 16*1024*1024*1024 {
+						if numTasks > 64 {
+							numTasks = 64
+						}
 					}
 				}
+			} else {
+				numTasks, _ = strconv.ParseInt(strThread, 10, 64)
+				if numTasks <= 0 {
+					numTasks = 1
+				}
 			}
+	
+			if strSplitSize != "" {
+				splitSize, _ = strconv.ParseInt(strSplitSize, 10, 64)
+			} else {
+				splitSize = int64(128 * 1024)
+			}
+			responseHeaders.(http.Header).Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", rangeStart, rangeEnd, contentSize))
+			
+			rp, wp := io.Pipe()
+			emitter := base.NewEmitter(rp, wp)
+			
+			go ConcurrentDownload(url, rangeStart, rangeEnd, contentSize, splitSize, numTasks, emitter, req)
+			io.Copy(pw, emitter)
+
+			defer func() {
+				emitter.Close()
+				logrus.Debugf("handleGetMethod emitter 已关闭-支持断点续传")
+			}()
 		} else {
-			numTasks, _ = strconv.ParseInt(strThread, 10, 64)
-			if numTasks <= 0 {
-				numTasks = 1
-			}
+			statusCode = 200
 		}
 
-		if strSplitSize != "" {
-			splitSize, _ = strconv.ParseInt(strSplitSize, 10, 64)
-		} else {
-			splitSize = int64(128 * 1024)
-		}
-		responseHeaders.(http.Header).Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", rangeStart, rangeEnd, contentSize))
-		
-		rp, wp := io.Pipe()
-		emitter := base.NewEmitter(rp, wp)
-		
-		go ConcurrentDownload(url, rangeStart, rangeEnd, contentSize, splitSize, numTasks, emitter, req)
-		
 		for key, values := range responseHeaders.(http.Header) {
 			if strings.EqualFold(strings.ToLower(key), "connection") || strings.EqualFold(strings.ToLower(key), "proxy-connection") {
 				continue
@@ -647,12 +656,6 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 		}
 		w.Header().Set("Connection", "keep-alive")
 		w.WriteHeader(statusCode)
-		io.Copy(pw, emitter)
-
-		defer func() {
-			emitter.Close()
-			logrus.Debugf("handleGetMethod emitter 已关闭-支持断点续传")
-		}()
 	}
 }
 
