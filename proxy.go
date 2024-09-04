@@ -574,6 +574,7 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 			if resp != nil && resp.RawBody() != nil {
 				logrus.Debugf("resp.RawBody 已关闭")
 				resp.RawBody().Close()
+			}
 		}
 	}
 
