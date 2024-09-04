@@ -65,7 +65,7 @@ type ProxyDownloadStruct struct {
 	CurrentChunk         int64
 	ChunkSize            int64
 	MaxBufferedChunk     int64
-	startOffset	     int64
+	startOffset          int64
 	EndOffset            int64
 	ProxyMutex           *sync.Mutex
 	ProxyTimeout         int64
@@ -157,7 +157,7 @@ func ConcurrentDownload(downloadUrl string, rangeStart int64, rangeEnd int64, fi
 
 func (p *ProxyDownloadStruct) ProxyRead() []byte {
 	// 判断文件是否下载结束
-	if p.CurrentOffset > p.EndOffset {
+	if p.CurrentOffset >= p.EndOffset {
 		p.ProxyStop()
 		return nil
 	}
@@ -449,6 +449,7 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 	headersKey := url + "#Headers"
 	curTime := time.Now().Unix()
 	var responseHeaders interface{}
+	var connection = "keep-alive"
 	responseHeaders, found = mediaCache.Get(headersKey)
 	if !found || curTime-lastModified > 60 {
 		// 关闭 Idle 超时设置
@@ -559,19 +560,21 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 				}
 			}
 			responseHeaders.(http.Header).Set("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s", fileName))
-
+			defer func ()  {
+				if resp != nil && resp.RawBody() != nil {
+					logrus.Debugf("resp.RawBody 已关闭")
+					resp.RawBody().Close()
+				}
+			}()
 		} else {
 			// 支持断点续传
 			mediaCache.Set(headersKey, responseHeaders, 1800*time.Second)
 			mediaCache.Set(cacheTimeKey, curTime, 1800*time.Second)
-		}
 
-		defer func ()  {
 			if resp != nil && resp.RawBody() != nil {
 				logrus.Debugf("resp.RawBody 已关闭")
 				resp.RawBody().Close()
-			}
-		}()
+		}
 	}
 
 	acceptRange := responseHeaders.(http.Header).Get("Accept-Ranges")
@@ -645,6 +648,7 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 				logrus.Debugf("handleGetMethod emitter 已关闭-支持断点续传")
 			}()
 		} else {
+			connection = "close"
 			statusCode = 200
 		}
 
@@ -654,7 +658,7 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 			}
 			w.Header().Set(key, strings.Join(values, ","))
 		}
-		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("Connection", connection)
 		w.WriteHeader(statusCode)
 	}
 }
