@@ -243,7 +243,7 @@ func (p *ProxyDownloadStruct) ProxyWorker(req *http.Request) {
 					logrus.Debugf("未读取数据: %d >= 缓冲区: %d ，先休息一下，避免内存溢出", remainingSize, maxBufferSize)
 					time.Sleep(1 * time.Second)
 				} else {
-					logrus.Debugf("未读取数据: %d < 缓冲区: %d , 下载继续", remainingSize, maxBufferSize)
+					// logrus.Debugf("未读取数据: %d < 缓冲区: %d , 下载继续", remainingSize, maxBufferSize)
 					break
 				}
 			}
@@ -437,23 +437,14 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 		statusCode = 200
 	}
 
-	cacheTimeKey := url + "#LastModified"
-	lastModifiedCache, found := mediaCache.Get(cacheTimeKey)
-	var lastModified int64
-	if found {
-		lastModified = lastModifiedCache.(int64)
-	} else {
-		lastModified = int64(0)
-	}
-
+	logrus.Debugf("请求头: %+v", newHeader)
 	headersKey := url + "#Headers"
-	curTime := time.Now().Unix()
 	var responseHeaders interface{}
 	var connection = "keep-alive"
-	responseHeaders, found = mediaCache.Get(headersKey)
-	if !found || curTime-lastModified > 60 {
+	responseHeaders, found := mediaCache.Get(headersKey)
+	if !found {
 		// 关闭 Idle 超时设置
-		base.IdleConnTimeout = 0
+		// base.IdleConnTimeout = 0
 		resp, err := base.RestyClient.
 			SetTimeout(0).
 			SetRetryCount(3).
@@ -473,8 +464,9 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
+		// 删除 Content-Range 头
+		// resp.Header().Del("Content-Range")
 		responseHeaders = resp.Header()
-		logrus.Debugf("请求头: %+v", responseHeaders.(http.Header))
 
 		var fileName string
 		contentDisposition := strings.ToLower(responseHeaders.(http.Header).Get("Content-Disposition"))
@@ -535,16 +527,11 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 		acceptRange := responseHeaders.(http.Header).Get("Accept-Ranges")
 		if contentRange == "" && acceptRange == "" {
 			// 不支持断点续传
-			remainingSize := 0
-			const maxBufferSize = 128*1024*1024 // 128MB
-			// const maxBufferSize = 1*1024 // 1KB
-
+			logrus.Debug("不支持断点续传")
 			buf := make([]byte, 1024*64) // 64KB 缓冲区
 			for {
 				n, err := resp.RawBody().Read(buf)
 				if n > 0 {
-					// 写入到客户端前更新未消费的数据大小
-					remainingSize += n
 					// 写入数据到客户端
 					_, writeErr := pw.Write(buf[:n])
 					if writeErr != nil {
@@ -560,6 +547,7 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 				}
 			}
 			responseHeaders.(http.Header).Set("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s", fileName))
+
 			defer func ()  {
 				if resp != nil && resp.RawBody() != nil {
 					logrus.Debugf("resp.RawBody 已关闭")
@@ -568,20 +556,21 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 			}()
 		} else {
 			// 支持断点续传
+			logrus.Debug("支持断点续传")
 			mediaCache.Set(headersKey, responseHeaders, 1800*time.Second)
-			mediaCache.Set(cacheTimeKey, curTime, 1800*time.Second)
 
 			if resp != nil && resp.RawBody() != nil {
 				logrus.Debugf("resp.RawBody 已关闭")
 				resp.RawBody().Close()
-			}
+			}	
 		}
 	}
-
+	
 	acceptRange := responseHeaders.(http.Header).Get("Accept-Ranges")
 	contentRange := responseHeaders.(http.Header).Get("Content-Range")
 	if contentRange == "" && acceptRange == "" {
 		// 不支持断点续传
+		logrus.Debug("不支持断点续传-从缓存获取Headers")
 		for key, values := range responseHeaders.(http.Header) {
 			if strings.EqualFold(strings.ToLower(key), "connection") || strings.EqualFold(strings.ToLower(key), "proxy-connection") {
 				continue
@@ -589,78 +578,99 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 			w.Header().Set(key, strings.Join(values, ","))
 		}
 		w.Header().Set("Connection", "keep-alive")
-		w.WriteHeader(statusCode)
-
+		w.WriteHeader(200)
 	} else {
 		// 支持断点续传
-		var splitSize int64
-		var numTasks int64
-	
-		contentSize := int64(0)
-		matchGroup = regexp.MustCompile(`.*/([0-9]+)`).FindStringSubmatch(contentRange)
-		if matchGroup != nil {
-			contentSize, _ = strconv.ParseInt(matchGroup[1], 10, 64)
+		logrus.Debug("支持断点续传-从缓存获取Headers")
+		if statusCode == 200 {
+			responseHeaders.(http.Header).Del("Content-Range")
+			responseHeaders.(http.Header).Set("Accept-Ranges", "bytes")
+			for key, values := range responseHeaders.(http.Header) {
+				if strings.EqualFold(strings.ToLower(key), "connection") || strings.EqualFold(strings.ToLower(key), "proxy-connection") || strings.EqualFold(strings.ToLower(key), "transfer-encoding") {
+					continue
+				}
+				w.Header().Set(key, strings.Join(values, ","))
+			}
+			w.Header().Set("Connection", connection)
+			w.WriteHeader(200)
 		} else {
-			contentSize, _ = strconv.ParseInt(responseHeaders.(http.Header).Get("Content-Length"), 10, 64)
-		}
+			var splitSize int64
+			var numTasks int64
 		
-		if rangeEnd == int64(0) {
-			rangeEnd = contentSize - 1
-		}
-		if rangeStart < contentSize {
-			if strThread == "" {
-				if rangeEnd-rangeStart > 512*1024*1024 {
-					if contentSize < 1*1024*1024*1024 {
-						if numTasks > 16 {
-							numTasks = 16
-						}
-					} else if contentSize < 4*1024*1024*1024 {
-						if numTasks > 32 {
-							numTasks = 32
-						}
-					} else if contentSize < 16*1024*1024*1024 {
-						if numTasks > 64 {
-							numTasks = 64
+			contentSize := int64(0)
+			matchGroup = regexp.MustCompile(`.*/([0-9]+)`).FindStringSubmatch(contentRange)
+			if matchGroup != nil {
+				contentSize, _ = strconv.ParseInt(matchGroup[1], 10, 64)
+			} else {
+				contentSize, _ = strconv.ParseInt(responseHeaders.(http.Header).Get("Content-Length"), 10, 64)
+			}
+			
+			if rangeEnd == int64(0) {
+				rangeEnd = contentSize - 1
+			}
+			if rangeStart < contentSize {
+				if strThread == "" {
+					if rangeEnd-rangeStart > 512*1024*1024 {
+						if contentSize < 1*1024*1024*1024 {
+							if numTasks > 16 {
+								numTasks = 16
+							}
+						} else if contentSize < 4*1024*1024*1024 {
+							if numTasks > 32 {
+								numTasks = 32
+							}
+						} else if contentSize < 16*1024*1024*1024 {
+							if numTasks > 64 {
+								numTasks = 64
+							}
 						}
 					}
+				} else {
+					numTasks, _ = strconv.ParseInt(strThread, 10, 64)
+					if numTasks <= 0 {
+						numTasks = 1
+					}
 				}
-			} else {
-				numTasks, _ = strconv.ParseInt(strThread, 10, 64)
-				if numTasks <= 0 {
-					numTasks = 1
+		
+				if strSplitSize != "" {
+					splitSize, _ = strconv.ParseInt(strSplitSize, 10, 64)
+				} else {
+					splitSize = int64(128 * 1024)
 				}
-			}
+				responseHeaders.(http.Header).Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", rangeStart, rangeEnd, contentSize))
+				
+				for key, values := range responseHeaders.(http.Header) {
+					if strings.EqualFold(strings.ToLower(key), "connection") || strings.EqualFold(strings.ToLower(key), "proxy-connection") || strings.EqualFold(strings.ToLower(key), "transfer-encoding") {
+						continue
+					}
+					w.Header().Set(key, strings.Join(values, ","))
+				}
+				w.Header().Set("Connection", "close")
+				w.WriteHeader(206)
+				
+				rp, wp := io.Pipe()
+				emitter := base.NewEmitter(rp, wp)
 	
-			if strSplitSize != "" {
-				splitSize, _ = strconv.ParseInt(strSplitSize, 10, 64)
+				go ConcurrentDownload(url, rangeStart, rangeEnd, contentSize, splitSize, numTasks, emitter, req)
+				io.Copy(pw, emitter)
+				
+				defer func() {
+					emitter.Close()
+					logrus.Debugf("handleGetMethod emitter 已关闭-支持断点续传")
+				}()
 			} else {
-				splitSize = int64(128 * 1024)
+				connection = "close"
+				for key, values := range responseHeaders.(http.Header) {
+					if strings.EqualFold(strings.ToLower(key), "connection") || strings.EqualFold(strings.ToLower(key), "proxy-connection") || strings.EqualFold(strings.ToLower(key), "transfer-encoding") {
+						continue
+					}
+					w.Header().Del(key)
+					w.Header().Set(key, strings.Join(values, ","))
+				}
+				w.Header().Set("Connection", connection)
+				w.WriteHeader(200)
 			}
-			responseHeaders.(http.Header).Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", rangeStart, rangeEnd, contentSize))
-			
-			rp, wp := io.Pipe()
-			emitter := base.NewEmitter(rp, wp)
-			
-			go ConcurrentDownload(url, rangeStart, rangeEnd, contentSize, splitSize, numTasks, emitter, req)
-			io.Copy(pw, emitter)
-
-			defer func() {
-				emitter.Close()
-				logrus.Debugf("handleGetMethod emitter 已关闭-支持断点续传")
-			}()
-		} else {
-			connection = "close"
-			statusCode = 200
 		}
-
-		for key, values := range responseHeaders.(http.Header) {
-			if strings.EqualFold(strings.ToLower(key), "connection") || strings.EqualFold(strings.ToLower(key), "proxy-connection") {
-				continue
-			}
-			w.Header().Set(key, strings.Join(values, ","))
-		}
-		w.Header().Set("Connection", connection)
-		w.WriteHeader(statusCode)
 	}
 }
 
@@ -844,7 +854,7 @@ func main() {
 	logrus.Infof("服务器运行在 %s 端口.", *port)
 
 	// 开启Debug
-	//logrus.SetLevel(logrus.DebugLevel)
+	// logrus.SetLevel(logrus.DebugLevel)
 
 	// 设置 DNS 解析器 IP
 	base.DnsResolverIP = *dns
