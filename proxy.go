@@ -478,9 +478,6 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 			http.Error(w, resp.Status(), resp.StatusCode())
 			return
 		}
-
-		// 删除 Content-Range 头
-		// resp.Header().Del("Content-Range")
 		responseHeaders = resp.Header()
 
 		var fileName string
@@ -505,7 +502,7 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 		}
 
 		contentType := responseHeaders.(http.Header).Get("Content-Type")
-		if contentType == "" {
+		if contentType == "" || contentType == "application/octet-stream" {
 			if strings.HasSuffix(fileName, ".webm") {
 				contentType = "video/webm"
 			} else if strings.HasSuffix(fileName, ".avi") {
@@ -616,26 +613,21 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 		}
 		if rangeStart < contentSize {
 			if strThread == "" {
-				if rangeEnd-rangeStart > 512*1024*1024 {
-					if contentSize < 1*1024*1024*1024 {
-						if numTasks > 16 {
-							numTasks = 16
-						}
-					} else if contentSize < 4*1024*1024*1024 {
-						if numTasks > 32 {
-							numTasks = 32
-						}
-					} else if contentSize < 16*1024*1024*1024 {
-						if numTasks > 64 {
-							numTasks = 64
-						}
-					}
+				if contentSize < 1*1024*1024*1024 {
+					numTasks = 4
+				} else if contentSize < 4*1024*1024*1024 {
+					numTasks = 8
+				} else if contentSize < 16*1024*1024*1024 {
+					numTasks = 12
+				} else {
+					numTasks = 16
 				}
 			} else {
 				numTasks, _ = strconv.ParseInt(strThread, 10, 64)
-				if numTasks <= 0 {
-					numTasks = 1
-				}
+			}
+
+			if numTasks <= 0 {
+				numTasks = 1
 			}
 	
 			if strSplitSize != "" {
@@ -653,7 +645,7 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 			}
 			w.Header().Set("Connection", "close")
 			w.WriteHeader(statusCode)
-			
+
 			if statusCode == 206 {
 				rp, wp := io.Pipe()
 				emitter := base.NewEmitter(rp, wp)
