@@ -27,6 +27,7 @@ import (
 	"MediaProxy/base"
 
 	// 第三方库
+	"github.com/bzsome/chaoGo/workpool"
 	"github.com/go-resty/resty/v2"
 	"github.com/patrickmn/go-cache"
 	"github.com/sirupsen/logrus"
@@ -35,6 +36,8 @@ import (
 //go:embed static/index.html
 var indexHTML embed.FS
 
+var workPool *bool
+var proxyTimeout = int64(10)
 var mediaCache = cache.New(4*time.Hour, 10*time.Minute)
 
 type Chunk struct {
@@ -73,9 +76,10 @@ type ProxyDownloadStruct struct {
 	ThreadCount          int64
 	DownloadUrl          string
 	CookieJar            *cookiejar.Jar
+	OriginThreadNum      int
 }
 
-func newProxyDownloadStruct(downloadUrl string, proxyTimeout int64, maxBuferredChunk int64, chunkSize int64, startOffset int64, endOffset int64, numTasks int64, cookiejar *cookiejar.Jar) *ProxyDownloadStruct {
+func newProxyDownloadStruct(downloadUrl string, proxyTimeout int64, maxBuferredChunk int64, chunkSize int64, startOffset int64, endOffset int64, numTasks int64, cookiejar *cookiejar.Jar, originThreadNum int) *ProxyDownloadStruct {
 	return &ProxyDownloadStruct{
 		ProxyRunning:         true,
 		MaxBufferedChunk:     int64(maxBuferredChunk),
@@ -90,33 +94,46 @@ func newProxyDownloadStruct(downloadUrl string, proxyTimeout int64, maxBuferredC
 		ThreadCount:          numTasks,
 		DownloadUrl:          downloadUrl,
 		CookieJar:            cookiejar,
+		OriginThreadNum:      originThreadNum,
 	}
 }
 
-func ConcurrentDownload(downloadUrl string, rangeStart int64, rangeEnd int64, fileSize int64, splitSize int64, numTasks int64, emitter *base.Emitter, req *http.Request) {
-	jar, _ := cookiejar.New(nil)
-	cookies := req.Cookies()
-	if len(cookies) > 0 {
-		// 将 cookies 添加到 cookie jar 中
-		u, _ := handleUrl.Parse(downloadUrl)
-		jar.SetCookies(u, cookies)
-	}
-	
+func ConcurrentDownload(p *ProxyDownloadStruct, downloadUrl string, rangeStart int64, rangeEnd int64, splitSize int64, numTasks int64, emitter *base.Emitter, req *http.Request, jar *cookiejar.Jar) {
 	totalLength := rangeEnd - rangeStart + 1
 	numSplits := int64(totalLength/int64(splitSize)) + 1
 	if numSplits > int64(numTasks) {
 		numSplits = int64(numTasks)
 	}
 
-	// 协程、读取超时设置
-	proxyTimeout := int64(10)
-
-	logrus.Debugf("正在处理: %+v, rangeStart: %+v, rangeEnd: %+v, contentLength :%+v, splitSize: %+v, numSplits: %+v, numTasks: %+v", downloadUrl, rangeStart, rangeEnd, totalLength, splitSize, numSplits, numSplits)
-	maxChunks := int64(128*1024*1024) / splitSize
-	p := newProxyDownloadStruct(downloadUrl, proxyTimeout, maxChunks, splitSize, rangeStart, rangeEnd, numTasks, jar)
-	for numSplit := 0; numSplit < int(numSplits); numSplit++ {
-		go p.ProxyWorker(req)
+	logrus.Debugf("正在处理: %+v, rangeStart: %+v, rangeEnd: %+v, contentLength :%+v, splitSize: %+v, numSplits: %+v, numTasks: %+v", downloadUrl, rangeStart, rangeEnd, totalLength, splitSize, numSplits, numTasks)
+	
+	if *workPool {
+		var wp *workpool.WorkPool
+		workPoolKey := downloadUrl + "#Workpool"
+		if x, found := mediaCache.Get(workPoolKey); found {
+			wp = x.(*workpool.WorkPool)
+			if workPool == nil {
+				wp = workpool.New(int(numTasks))
+				wp.SetTimeout(time.Duration(proxyTimeout) * time.Second)
+				mediaCache.Set(workPoolKey, wp, 14400*time.Second)
+			}
+		} else {
+			wp = workpool.New(int(numTasks))
+			wp.SetTimeout(time.Duration(proxyTimeout) * time.Second)
+			mediaCache.Set(workPoolKey, wp, 14400*time.Second)
+		}
+		for numSplit := 0; numSplit < int(numSplits); numSplit++ {
+			wp.Do(func() error {
+				p.ProxyWorker(req)
+				return nil
+			})
+		}
+	} else {
+		for numSplit := 0; numSplit < int(numSplits); numSplit++ {
+			go p.ProxyWorker(req)
+		}
 	}
+
 
 	defer func() {
 		p.ProxyStop()
@@ -205,6 +222,7 @@ func (p *ProxyDownloadStruct) ProxyStop() {
 }
 
 func (p *ProxyDownloadStruct) ProxyWorker(req *http.Request) {
+	logrus.Debugf("当前活跃的协程数量: %d",  runtime.NumGoroutine()-p.OriginThreadNum)
 	for {
 		if !p.ProxyRunning {
 			break
@@ -349,9 +367,6 @@ func handleMethod(w http.ResponseWriter, req *http.Request) {
 }
 
 func handleGetMethod(w http.ResponseWriter, req *http.Request) {
-
-	logrus.Debugf("当前活跃的协程数量: %d", runtime.NumGoroutine())
-
 	pw := bufio.NewWriterSize(w, 128*1024)
 	defer func() {
 		if pw.Buffered() > 0 {
@@ -642,11 +657,15 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 			rp, wp := io.Pipe()
 			emitter := base.NewEmitter(rp, wp)
 
-			go ConcurrentDownload(url, rangeStart, rangeEnd, contentSize, splitSize, numTasks, emitter, req)
+			maxChunks := int64(128*1024*1024) / splitSize
+			p := newProxyDownloadStruct(url, proxyTimeout, maxChunks, splitSize, rangeStart, rangeEnd, numTasks, jar, runtime.NumGoroutine()+1)
+
+			go ConcurrentDownload(p, url, rangeStart, rangeEnd, splitSize, numTasks, emitter, req, jar)
 			io.Copy(pw, emitter)
 			
 			defer func() {
 				emitter.Close()
+				p.ProxyStop()
 				logrus.Debugf("handleGetMethod emitter 已关闭-支持断点续传")
 			}()
 		} else {
@@ -829,6 +848,7 @@ func main() {
 	dns := flag.String("dns", "1.1.1.1:53", "DNS解析 IP:port")
 	port := flag.String("port", "10078", "服务器端口")
 	debug := flag.Bool("debug", false, "Debug模式")
+	workPool = flag.Bool("workPool", false, "线程池模式")
 	flag.Parse()
 
 	// 忽略 SIGPIPE 信号
