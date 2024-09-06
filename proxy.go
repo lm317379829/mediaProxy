@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"os"
@@ -37,6 +38,7 @@ import (
 var indexHTML embed.FS
 
 var workPool *bool
+var dnsResolver string
 var proxyTimeout = int64(10)
 var mediaCache = cache.New(4*time.Hour, 10*time.Minute)
 
@@ -274,9 +276,9 @@ func (p *ProxyDownloadStruct) ProxyWorker(req *http.Request) {
 				// 建立连接
 				rangeStr := fmt.Sprintf("bytes=%d-%d", chunk.startOffset, chunk.endOffset)
 				newHeader := make(map[string][]string)
-				for name, value := range req.Header {
-					if !shouldFilterHeaderName(name) {
-						newHeader[name] = value
+				for key, value := range req.Header {
+					if !shouldFilterHeaderName(key) {
+						newHeader[key] = value
 					}
 				}
 
@@ -416,9 +418,9 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 	}
 
 	newHeader := make(map[string][]string)
-	for name, value := range req.Header {
-		if !shouldFilterHeaderName(name) {
-			newHeader[name] = value
+	for key, value := range req.Header {
+		if !shouldFilterHeaderName(key) {
+			newHeader[key] = value
 		}
 	}
 
@@ -658,9 +660,9 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 				
 				defer func() {
 					logrus.Debugf("handleGetMethod emitter 已关闭-支持断点续传")
-					emitter.Close()
 					p.ProxyStop()
 					p = nil
+					emitter.Close()
 				}()
 			}
 		} else {
@@ -723,9 +725,9 @@ func handleOtherMethod(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 	newHeader := make(map[string][]string)
-	for name, value := range req.Header {
-		if !shouldFilterHeaderName(name) {
-			newHeader[name] = value
+	for key, value := range req.Header {
+		if !shouldFilterHeaderName(key) {
+			newHeader[key] = value
 		}
 	}
 
@@ -821,14 +823,13 @@ func handleOtherMethod(w http.ResponseWriter, req *http.Request) {
 
 	// 处理响应
 	w.Header().Set("Connection", "close")
-	for name, values := range resp.Header() {
-		w.Header().Set(name, strings.Join(values, ","))
+	for key, values := range resp.Header() {
+		w.Header().Set(key, strings.Join(values, ","))
 	}
 	w.WriteHeader(resp.StatusCode())
 	bodyReader := bytes.NewReader(resp.Body())
 	io.Copy(w, bodyReader)
 }
-
 
 func shouldFilterHeaderName(key string) bool {
 	if len(strings.TrimSpace(key)) == 0 {
@@ -863,7 +864,8 @@ func main() {
 	// logrus.SetLevel(logrus.DebugLevel)
 
 	// 设置 DNS 解析器 IP
-	base.DnsResolverIP = *dns
+	dnsResolver = *dns
+	base.DnsResolverIP = dnsResolver
 	base.InitClient()
 	var server = http.Server{
 		Addr:    ":" + *port,
