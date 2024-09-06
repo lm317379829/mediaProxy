@@ -17,9 +17,15 @@ get或post http://ip:port/?thread=线程数&form=url与header编码格式&url=�
   </thead>
   <tbody>
     <tr>
+      <td style="text-align:center;">workPool</td>
+      <td style="text-align:center;">启用chaoGo线程池</td>
+      <td style="text-align:center;">false</td>
+      <td style="text-align:center;">-workPool</td>
+    </tr>
+    <tr>
       <td style="text-align:center;">debug</td>
       <td style="text-align:center;">进入调试模式</td>
-      <td style="text-align:center;">无</td>
+      <td style="text-align:center;">false</td>
       <td style="text-align:center;">-debug</td>
     </tr>
     <tr>
