@@ -642,9 +642,14 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 				if strings.EqualFold(strings.ToLower(key), "connection") || strings.EqualFold(strings.ToLower(key), "proxy-connection") || strings.EqualFold(strings.ToLower(key), "transfer-encoding") {
 					continue
 				}
+				if statusCode == 200 &&  strings.EqualFold(strings.ToLower(key), "content-range") {
+					continue
+				} else if statusCode == 206 &&  strings.EqualFold(strings.ToLower(key), "accept-ranges") {
+					continue
+				}
 				w.Header().Set(key, strings.Join(values, ","))
 			}
-			w.Header().Set("Connection", "close")
+			w.Header().Set("Connection", "keep-alive")
 			w.WriteHeader(statusCode)
 
 			if statusCode == 206 {
@@ -664,6 +669,8 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 					emitter.Close()
 				}()
 			}
+
+
 		} else {
 			statusCode = 200
 			connection = "close"
