@@ -652,25 +652,22 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 			w.Header().Set("Connection", "keep-alive")
 			w.WriteHeader(statusCode)
 
-			if statusCode == 206 {
-				rp, wp := io.Pipe()
-				emitter := base.NewEmitter(rp, wp)
-	
-				maxChunks := int64(128*1024*1024) / splitSize
-				p := newProxyDownloadStruct(url, proxyTimeout, maxChunks, splitSize, rangeStart, rangeEnd, numTasks, jar, runtime.NumGoroutine()+1)
-	
-				go ConcurrentDownload(p, url, rangeStart, rangeEnd, splitSize, numTasks, emitter, req, jar)
-				io.Copy(pw, emitter)
-				
-				defer func() {
-					logrus.Debugf("handleGetMethod emitter 已关闭-支持断点续传")
-					p.ProxyStop()
-					p = nil
-					emitter.Close()
-				}()
-			}
+			rp, wp := io.Pipe()
+			emitter := base.NewEmitter(rp, wp)
 
+			maxChunks := int64(128*1024*1024) / splitSize
+			p := newProxyDownloadStruct(url, proxyTimeout, maxChunks, splitSize, rangeStart, rangeEnd, numTasks, jar, runtime.NumGoroutine()+1)
 
+			go ConcurrentDownload(p, url, rangeStart, rangeEnd, splitSize, numTasks, emitter, req, jar)
+			io.Copy(pw, emitter)
+			
+			defer func() {
+				logrus.Debugf("handleGetMethod emitter 已关闭-支持断点续传")
+				p.ProxyStop()
+				p = nil
+				emitter.Close()
+			}()
+			
 		} else {
 			statusCode = 200
 			connection = "close"
