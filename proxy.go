@@ -526,7 +526,7 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 				contentType = "video/mp4"
 			}
 			responseHeaders.(http.Header).Set("Content-Type", contentType)
-		}
+		} 
 
 		contentRange := responseHeaders.(http.Header).Get("Content-Range")
 		if contentRange != "" {
@@ -534,21 +534,26 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 			contentSize, _ := strconv.ParseInt(matchGroup[1], 10, 64)
 			responseHeaders.(http.Header).Set("Content-Length", strconv.FormatInt(contentSize, 10))
 		} else {
-			responseHeaders.(http.Header).Set("Content-Length", strconv.FormatInt(resp.Size(), 10))
+			if resp.Size() > 0 {
+				responseHeaders.(http.Header).Set("Content-Length", strconv.FormatInt(resp.Size(), 10))
+			} else {
+				responseHeaders.(http.Header).Set("Content-Length", strconv.FormatInt(resp.RawResponse.ContentLength, 10))
+			}
+			
 		}
 
 		acceptRange := responseHeaders.(http.Header).Get("Accept-Ranges")
 		if contentRange == "" && acceptRange == "" {
 			// 不支持断点续传
 			logrus.Debug("不支持断点续传")
-			buf := make([]byte, 1024*64) // 64KB 缓冲区
+			buf := make([]byte, 1024*64)
 			for {
 				n, err := resp.RawBody().Read(buf)
 				if n > 0 {
 					// 写入数据到客户端
 					_, writeErr := pw.Write(buf[:n])
 					if writeErr != nil {
-						logrus.Errorf("向客户端写入 Response 失败: %v", writeErr)
+						http.Error(w, fmt.Sprintf("向客户端写入 Response 失败: %v", writeErr), http.StatusInternalServerError)
 						return
 					}
 				}
