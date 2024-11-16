@@ -575,7 +575,7 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 		} else {
 			// 支持断点续传
 			logrus.Debug("支持断点续传")
-			mediaCache.Set(headersKey, responseHeaders, 1800*time.Second)
+			mediaCache.Set(headersKey, responseHeaders, 14400*time.Second)
 
 			if resp != nil && resp.RawBody() != nil {
 				logrus.Debugf("resp.RawBody 已关闭")
@@ -676,6 +676,7 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 		} else {
 			statusCode = 200
 			connection = "close"
+			mediaCache.Delete(headersKey)
 			for key, values := range responseHeaders.(http.Header) {
 				if strings.EqualFold(strings.ToLower(key), "connection") || strings.EqualFold(strings.ToLower(key), "proxy-connection") || strings.EqualFold(strings.ToLower(key), "transfer-encoding") {
 					continue
