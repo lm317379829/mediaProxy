@@ -10,8 +10,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/cookiejar"
+	handleUrl "net/url"
 	"os"
 	"os/signal"
 	"regexp"
@@ -21,7 +23,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-	handleUrl "net/url"
 
 	// 本地包
 	"MediaProxy/base"
@@ -101,13 +102,13 @@ func newProxyDownloadStruct(downloadUrl string, proxyTimeout int64, maxBuferredC
 
 func ConcurrentDownload(p *ProxyDownloadStruct, downloadUrl string, rangeStart int64, rangeEnd int64, splitSize int64, numTasks int64, emitter *base.Emitter, req *http.Request, jar *cookiejar.Jar) {
 	totalLength := rangeEnd - rangeStart + 1
-	numSplits := int64(totalLength/int64(splitSize)) + 1
+	numSplits := int64(math.Ceil(float64(totalLength) / float64(splitSize)))
 	if numSplits > int64(numTasks) {
 		numSplits = int64(numTasks)
 	}
 
 	logrus.Debugf("正在处理: %+v, rangeStart: %+v, rangeEnd: %+v, contentLength :%+v, splitSize: %+v, numSplits: %+v, numTasks: %+v", downloadUrl, rangeStart, rangeEnd, totalLength, splitSize, numSplits, numTasks)
-	
+
 	if *workPool {
 		var wp *workpool.WorkPool
 		workPoolKey := downloadUrl + "#Workpool"
@@ -134,7 +135,6 @@ func ConcurrentDownload(p *ProxyDownloadStruct, downloadUrl string, rangeStart i
 			go p.ProxyWorker(req)
 		}
 	}
-
 
 	defer func() {
 		p.ProxyStop()
@@ -223,7 +223,7 @@ func (p *ProxyDownloadStruct) ProxyStop() {
 }
 
 func (p *ProxyDownloadStruct) ProxyWorker(req *http.Request) {
-	logrus.Debugf("当前活跃的协程数量: %d",  runtime.NumGoroutine()-p.OriginThreadNum)
+	logrus.Debugf("当前活跃的协程数量: %d", runtime.NumGoroutine()-p.OriginThreadNum)
 	for {
 		if !p.ProxyRunning {
 			break
@@ -257,7 +257,7 @@ func (p *ProxyDownloadStruct) ProxyWorker(req *http.Request) {
 			} else {
 				// 过多的数据未被取走，先休息一下，避免内存溢出
 				remainingSize := p.GetRemainingSize(p.ChunkSize)
-				maxBufferSize := p.ChunkSize*p.MaxBufferedChunk
+				maxBufferSize := p.ChunkSize * p.MaxBufferedChunk
 				if remainingSize >= maxBufferSize {
 					logrus.Debugf("未读取数据: %d >= 缓冲区: %d ，先休息一下，避免内存溢出", remainingSize, maxBufferSize)
 					time.Sleep(1 * time.Second)
@@ -297,7 +297,7 @@ func (p *ProxyDownloadStruct) ProxyWorker(req *http.Request) {
 						SetHeaderMultiValues(newHeader).
 						SetHeader("Range", rangeStr).
 						Get(p.DownloadUrl)
-					
+
 					if err != nil {
 						logrus.Errorf("处理 %+v 链接 range=%d-%d 部分失败: %+v", p.DownloadUrl, chunk.startOffset, chunk.endOffset, err)
 						time.Sleep(1 * time.Second)
@@ -526,7 +526,7 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 				contentType = "video/mp4"
 			}
 			responseHeaders.(http.Header).Set("Content-Type", contentType)
-		} 
+		}
 
 		contentRange := responseHeaders.(http.Header).Get("Content-Range")
 		if contentRange != "" {
@@ -539,7 +539,7 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 			} else {
 				responseHeaders.(http.Header).Set("Content-Length", strconv.FormatInt(resp.RawResponse.ContentLength, 10))
 			}
-			
+
 		}
 
 		acceptRange := responseHeaders.(http.Header).Get("Accept-Ranges")
@@ -566,7 +566,7 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 			}
 			responseHeaders.(http.Header).Set("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s", fileName))
 
-			defer func ()  {
+			defer func() {
 				if resp != nil && resp.RawBody() != nil {
 					logrus.Debugf("resp.RawBody 已关闭")
 					resp.RawBody().Close()
@@ -580,10 +580,10 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 			if resp != nil && resp.RawBody() != nil {
 				logrus.Debugf("resp.RawBody 已关闭")
 				resp.RawBody().Close()
-			}	
+			}
 		}
 	}
-	
+
 	acceptRange := responseHeaders.(http.Header).Get("Accept-Ranges")
 	contentRange := responseHeaders.(http.Header).Get("Content-Range")
 	if contentRange == "" && acceptRange == "" {
@@ -605,7 +605,7 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 
 		var splitSize int64
 		var numTasks int64
-	
+
 		contentSize := int64(0)
 		matchGroup = regexp.MustCompile(`.*/([0-9]+)`).FindStringSubmatch(contentRange)
 		if matchGroup != nil {
@@ -613,7 +613,7 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 		} else {
 			contentSize, _ = strconv.ParseInt(responseHeaders.(http.Header).Get("Content-Length"), 10, 64)
 		}
-		
+
 		if rangeEnd == int64(0) {
 			rangeEnd = contentSize - 1
 		}
@@ -635,26 +635,30 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 			if numTasks <= 0 {
 				numTasks = 1
 			}
-	
+
 			if strSplitSize != "" {
 				splitSize, _ = strconv.ParseInt(strSplitSize, 10, 64)
 			} else {
 				splitSize = int64(128 * 1024)
 			}
 			responseHeaders.(http.Header).Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", rangeStart, rangeEnd, contentSize))
-			
+
 			for key, values := range responseHeaders.(http.Header) {
 				if strings.EqualFold(strings.ToLower(key), "connection") || strings.EqualFold(strings.ToLower(key), "proxy-connection") || strings.EqualFold(strings.ToLower(key), "transfer-encoding") {
 					continue
 				}
-				if statusCode == 200 &&  strings.EqualFold(strings.ToLower(key), "content-range") {
+				if statusCode == 200 && strings.EqualFold(strings.ToLower(key), "content-range") {
 					continue
-				} else if statusCode == 206 &&  strings.EqualFold(strings.ToLower(key), "accept-ranges") {
+				} else if statusCode == 206 && strings.EqualFold(strings.ToLower(key), "accept-ranges") {
 					continue
 				}
 				w.Header().Set(key, strings.Join(values, ","))
 			}
-			w.Header().Set("Connection", "keep-alive")
+			if (rangeStart + splitSize*numTasks) >= (contentSize - 1) {
+				w.Header().Set("Connection", "keep-alive")
+			} else {
+				w.Header().Set("Connection", "close")
+			}
 			w.WriteHeader(statusCode)
 
 			rp, wp := io.Pipe()
@@ -665,14 +669,16 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 
 			go ConcurrentDownload(p, url, rangeStart, rangeEnd, splitSize, numTasks, emitter, req, jar)
 			io.Copy(pw, emitter)
-			
+
 			defer func() {
 				logrus.Debugf("handleGetMethod emitter 已关闭-支持断点续传")
+				if (rangeStart + splitSize*numTasks) >= (contentSize - 1) {
+					mediaCache.Delete(headersKey)
+				}
 				p.ProxyStop()
 				p = nil
 				emitter.Close()
 			}()
-			
 		} else {
 			statusCode = 200
 			connection = "close"
@@ -763,61 +769,61 @@ func handleOtherMethod(w http.ResponseWriter, req *http.Request) {
 	}
 
 	var resp *resty.Response
-    var err error
+	var err error
 	switch req.Method {
-    case http.MethodPost:
+	case http.MethodPost:
 		resp, err = base.RestyClient.
-		SetTimeout(10 * time.Second).
-		SetRetryCount(3).
-		SetCookieJar(jar).
-		R().
-		SetBody(reqBody).
-		SetHeaderMultiValues(newHeader).
-		Post(url)
-    case http.MethodPut:
+			SetTimeout(10 * time.Second).
+			SetRetryCount(3).
+			SetCookieJar(jar).
+			R().
+			SetBody(reqBody).
+			SetHeaderMultiValues(newHeader).
+			Post(url)
+	case http.MethodPut:
 		resp, err = base.RestyClient.
-		SetTimeout(10 * time.Second).
-		SetRetryCount(3).
-		SetCookieJar(jar).
-		R().
-		SetBody(reqBody).
-		SetHeaderMultiValues(newHeader).
-		Put(url)
+			SetTimeout(10 * time.Second).
+			SetRetryCount(3).
+			SetCookieJar(jar).
+			R().
+			SetBody(reqBody).
+			SetHeaderMultiValues(newHeader).
+			Put(url)
 	case http.MethodOptions:
 		resp, err = base.RestyClient.
-		SetTimeout(10 * time.Second).
-		SetRetryCount(3).
-		SetCookieJar(jar).
-		R().
-		SetHeaderMultiValues(newHeader).
-		Options(url)
+			SetTimeout(10 * time.Second).
+			SetRetryCount(3).
+			SetCookieJar(jar).
+			R().
+			SetHeaderMultiValues(newHeader).
+			Options(url)
 	case http.MethodDelete:
 		resp, err = base.RestyClient.
-		SetTimeout(10 * time.Second).
-		SetRetryCount(3).
-		SetCookieJar(jar).
-		R().
-		SetHeaderMultiValues(newHeader).
-		Delete(url)
-    case http.MethodPatch:
+			SetTimeout(10 * time.Second).
+			SetRetryCount(3).
+			SetCookieJar(jar).
+			R().
+			SetHeaderMultiValues(newHeader).
+			Delete(url)
+	case http.MethodPatch:
 		resp, err = base.RestyClient.
-		SetTimeout(10 * time.Second).
-		SetRetryCount(3).
-		SetCookieJar(jar).
-		R().
-		SetHeaderMultiValues(newHeader).
-		Patch(url)
-    case http.MethodHead:
+			SetTimeout(10 * time.Second).
+			SetRetryCount(3).
+			SetCookieJar(jar).
+			R().
+			SetHeaderMultiValues(newHeader).
+			Patch(url)
+	case http.MethodHead:
 		resp, err = base.RestyClient.
-		SetTimeout(10 * time.Second).
-		SetRetryCount(3).
-		SetCookieJar(jar).
-		R().
-		SetHeaderMultiValues(newHeader).
-		Head(url)
-    default:
-        http.Error(w, fmt.Sprintf("无效的Method: %v", req.Method), http.StatusBadRequest)
-    }
+			SetTimeout(10 * time.Second).
+			SetRetryCount(3).
+			SetCookieJar(jar).
+			R().
+			SetHeaderMultiValues(newHeader).
+			Head(url)
+	default:
+		http.Error(w, fmt.Sprintf("无效的Method: %v", req.Method), http.StatusBadRequest)
+	}
 
 	if err != nil {
 		http.Error(w, fmt.Sprintf("%v 链接 %v 失败: %v", req.Method, url, err), http.StatusInternalServerError)
