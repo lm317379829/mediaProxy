@@ -422,6 +422,8 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 			newHeader[key] = value
 		}
 	}
+	parsedURL, _ := handleUrl.Parse(url)
+	newHeader["Host"] = []string{parsedURL.Host}
 
 	for parameterName := range query {
 		if parameterName == "url" || parameterName == "form" || parameterName == "thread" || parameterName == "size" || parameterName == "header" {
@@ -476,7 +478,10 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 		if resp.StatusCode() < 200 || resp.StatusCode() >= 400 {
-			http.Error(w, resp.Status(), resp.StatusCode())
+			defer resp.RawBody().Close() 
+			bodyBytes, _ := io.ReadAll(resp.RawBody())
+			bodyString := string(bodyBytes)
+			http.Error(w, bodyString, resp.StatusCode())
 			return
 		}
 		responseHeaders = resp.Header()
