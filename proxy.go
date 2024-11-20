@@ -478,7 +478,7 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 		if resp.StatusCode() < 200 || resp.StatusCode() >= 400 {
-			defer resp.RawBody().Close() 
+			defer resp.RawBody().Close()
 			bodyBytes, _ := io.ReadAll(resp.RawBody())
 			bodyString := string(bodyBytes)
 			http.Error(w, bodyString, resp.StatusCode())
@@ -494,16 +494,14 @@ func handleGetMethod(w http.ResponseWriter, req *http.Request) {
 				fileName = regCompile.ReplaceAllString(contentDisposition, "$1")
 			}
 		} else {
-			// 找到最后一个 "/" 的索引
-			lastSlashIndex := strings.LastIndex(url, "/")
 			// 找到第一个 "?" 的索引
 			queryIndex := strings.Index(url, "?")
 			if queryIndex == -1 {
 				// 如果没有 "?"，则提取从最后一个 "/" 到结尾的字符串
-				fileName = url[lastSlashIndex+1:]
+				fileName = url[strings.LastIndex(url, "/")+1:]
 			} else {
 				// 如果存在 "?"，则提取从最后一个 "/" 到 "?" 之间的字符串
-				fileName = url[lastSlashIndex+1 : queryIndex]
+				fileName = url[strings.LastIndex(url[:queryIndex], "/")+1 : queryIndex]
 			}
 		}
 
