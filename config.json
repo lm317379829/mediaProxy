@@ -1,0 +1,7 @@
+{
+	"workPool": true,
+	"debug": true, 
+	"port": "10079", 
+	"dns": "1.1.1.1:53",
+	"ssl":{"cert": "cert文件位置", "key": "key文件位置"}
+}
