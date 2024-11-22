@@ -17,28 +17,48 @@ get或post http://ip:port/?thread=线程数&form=url与header编码格式&url=�
   </thead>
   <tbody>
     <tr>
+      <td style="text-align:center;">config</td>
+      <td style="text-align:center;">json格式配置文件位置</td>
+      <td style="text-align:center;">空</td>
+      <td style="text-align:center;">-config 路径/文件名.json</td>
+    </tr>
+  </tbody>
+</table>
+
+## 配置文件参数
+<table>
+  <thead>
+    <tr>
+      <th style="text-align:center;">参数</th>
+      <th style="text-align:center;">描述</th>
+      <th style="text-align:center;">默认值</th>
+      <th style="text-align:center;">可选值</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
       <td style="text-align:center;">workPool</td>
       <td style="text-align:center;">启用chaoGo线程池</td>
       <td style="text-align:center;">false</td>
-      <td style="text-align:center;">-workPool</td>
+      <td style="text-align:center;">true/false</td>
     </tr>
     <tr>
       <td style="text-align:center;">debug</td>
-      <td style="text-align:center;">进入调试模式</td>
+      <td style="text-align:center;">调试模式</td>
       <td style="text-align:center;">false</td>
-      <td style="text-align:center;">-debug</td>
+      <td style="text-align:center;">true/false</td>
     </tr>
     <tr>
       <td style="text-align:center;">port</td>
-      <td style="text-align:center;">指定程序端口</td>
+      <td style="text-align:center;">程序端口</td>
       <td style="text-align:center;">10078</td>
-      <td style="text-align:center;">-port 10079</td>
+      <td style="text-align:center;">任意不冲突端口</td>
     </tr>
     <tr>
-      <td style="text-align:center;">dns</td>
-      <td style="text-align:center;">指定dns服务器</td>
-      <td style="text-align:center;">1.1.1.1:53</td>
-      <td style="text-align:center;">-dns 127.0.0.1:5335</td>
+      <td style="text-align:center;">ssl</td>
+      <td style="text-align:center;">ssl证书位置</td>
+      <td style="text-align:center;">{"key": "key文件位置", "cert": "cert文件位置"}</td>
+      <td style="text-align:center;">-</td>
     </tr>
   </tbody>
 </table>
